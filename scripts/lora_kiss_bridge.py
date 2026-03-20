@@ -147,26 +147,29 @@ class LoRaRFRadio:
         else:
             raise ValueError(f"Unsupported chip: {self._chip}")
 
-        # SPI bus configuration
-        # SX127x uses setSpi (lowercase) — SX126x uses setSPI
         if self._chip in ("sx1276", "sx1278"):
-            self._lora.setSpi(spi["bus"], spi["device"],
-                              spi.get("max_speed_hz", 2_000_000))
-        else:
-            self._lora.setSPI(spi["bus"], spi["device"],
-                              spi.get("max_speed_hz", 2_000_000))
-
-        # GPIO pin configuration — signatures differ between chip families:
-        #   SX126x: setPins(nss, reset, busy, irq, txen, rxen)
-        #   SX127x: setPins(reset, irq, txen, rxen)  — no nss or busy pin
-        if self._chip in ("sx1276", "sx1278"):
-            self._lora.setPins(
+            # SX127x: begin() handles setSpi/setPins internally — pass all
+            # config directly so its internal calls use our values, not defaults.
+            ok = self._lora.begin(
+                spi["bus"],
+                spi["device"],
                 p["reset"],
                 p.get("irq",   -1) or -1,
                 p.get("tx_en", -1) or -1,
                 p.get("rx_en", -1) or -1,
             )
+            if not ok:
+                raise RuntimeError(
+                    f"LoRaRF begin() failed for profile '{self._profile.get('description')}' "
+                    "— check SPI and GPIO wiring"
+                )
+            # Set SPI speed separately — begin() doesn't accept a speed param
+            self._lora.setSpiSpeed(spi.get("max_speed_hz", 5_000_000))
+
         else:
+            # SX126x: configure SPI and pins first, then call begin()
+            self._lora.setSPI(spi["bus"], spi["device"],
+                              spi.get("max_speed_hz", 2_000_000))
             self._lora.setPins(
                 p["cs"],
                 p["reset"],
@@ -175,19 +178,17 @@ class LoRaRFRadio:
                 p.get("tx_en", -1) or -1,
                 p.get("rx_en", -1) or -1,
             )
-
-        # TCXO on DIO3 — SX1262 only
-        if self._chip == "sx1262" and tcxo.get("enabled"):
-            self._lora.setDio3TcxoCtrl(
-                tcxo.get("voltage", 1.8),
-                int(tcxo.get("delay_ms", 5) * 1000)   # µs
-            )
-
-        if not self._lora.begin():
-            raise RuntimeError(
-                f"LoRaRF begin() failed for profile '{self._profile.get('description')}' "
-                "— check SPI and GPIO wiring"
-            )
+            # TCXO on DIO3 — SX1262 only
+            if tcxo.get("enabled"):
+                self._lora.setDio3TcxoCtrl(
+                    tcxo.get("voltage", 1.8),
+                    int(tcxo.get("delay_ms", 5) * 1000)   # µs
+                )
+            if not self._lora.begin():
+                raise RuntimeError(
+                    f"LoRaRF begin() failed for profile '{self._profile.get('description')}' "
+                    "— check SPI and GPIO wiring"
+                )
 
         log.info("Radio ready: %s", self._profile.get("description", self._chip))
 

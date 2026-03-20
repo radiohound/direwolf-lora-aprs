@@ -218,10 +218,10 @@ profiles:
     chip: sx1276
     spi:
       bus: 0
-      device: 0            # CE0 — BCM GPIO8, physical pin 24
+      device: 1            # CE1 — BCM GPIO7, physical pin 26
       max_speed_hz: 5000000
     pins:
-      cs:     8            # SPI CE0 (BCM 8, physical pin 24)
+      cs:     7            # SPI CE1 (BCM 7, physical pin 26)
       reset:  22           # RESET active-low (BCM 22, physical pin 15)
       irq:    25           # DIO0 — RX done / TX done interrupt (BCM 25, pin 22)
       busy:   null         # SX1276 has no BUSY pin
