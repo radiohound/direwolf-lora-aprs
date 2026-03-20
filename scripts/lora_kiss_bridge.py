@@ -163,8 +163,6 @@ class LoRaRFRadio:
                     f"LoRaRF begin() failed for profile '{self._profile.get('description')}' "
                     "— check SPI and GPIO wiring"
                 )
-            # Set SPI speed separately — begin() doesn't accept a speed param
-            self._lora.setSpiSpeed(spi.get("max_speed_hz", 5_000_000))
 
         else:
             # SX126x: configure SPI and pins first, then call begin()
