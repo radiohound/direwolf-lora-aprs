@@ -183,6 +183,55 @@ profiles:
     max_tx_power_dbm: 20
 
   # ---------------------------------------------------------------------------
+  # Digital Concepts LoRa-Pi — RFM95W / RFM98W (SX1276)
+  # https://digitalconcepts.net.au/pcbs/lorapi
+  #
+  # All HopeRF RFM9x(W) modules are pin-compatible on this board.
+  # Use with RFM95W (868/915 MHz) or RFM98W (433 MHz) — same wiring.
+  #
+  # Module pin → RPi BCM GPIO mapping:
+  #
+  #   Function  Pi pin   BCM GPIO
+  #   ────────  ──────   ────────
+  #   CS/NSS    24       GPIO8  (SPI0 CE0)
+  #   RESET     15       GPIO22
+  #   DIO0/IRQ  22       GPIO25
+  #   DIO1      18       GPIO24
+  #   DIO2      16       GPIO23  (optional — solder bridge required)
+  #   DIO3      13       GPIO27  (optional — solder bridge required)
+  #   MISO      21       GPIO9   (SPI0)
+  #   MOSI      19       GPIO10  (SPI0)
+  #   SCLK      23       GPIO11  (SPI0)
+  #   VCC       17       3V3
+  #   GND       20       GND
+  #
+  # Hardware notes:
+  #   - RFM9x has no BUSY pin — SX1276 does not require it.
+  #   - No separate TX enable / RX enable pins; the SX1276 internal RF
+  #     switch is driven automatically via DIO2 in continuous mode.
+  #   - No TCXO — uses the module's internal RC oscillator.
+  #   - Max output power: +17 dBm (RFO pin) or +20 dBm (PA_BOOST).
+  #     Default tx_power_dbm is set conservatively to 17.
+  # ---------------------------------------------------------------------------
+  lorapi_rfm95w:
+    description: "Digital Concepts LoRa-Pi — RFM95W/RFM98W (SX1276, 433/868/915 MHz)"
+    chip: sx1276
+    spi:
+      bus: 0
+      device: 0            # CE0 — BCM GPIO8, physical pin 24
+      max_speed_hz: 5000000
+    pins:
+      cs:     8            # SPI CE0 (BCM 8, physical pin 24)
+      reset:  22           # RESET active-low (BCM 22, physical pin 15)
+      irq:    25           # DIO0 — RX done / TX done interrupt (BCM 25, pin 22)
+      busy:   null         # SX1276 has no BUSY pin
+      tx_en:  null         # Internal RF switch — no MCU GPIO needed
+      rx_en:  null
+    tcxo:
+      enabled: false       # RFM9x modules use internal RC oscillator
+    max_tx_power_dbm: 17   # +17 dBm via RFO; set to 20 if using PA_BOOST path
+
+  # ---------------------------------------------------------------------------
   # Generic SX1276 / SX1278 (older LoRa modules, Ra-02, etc.)
   # No TX/RX switch pins, no TCXO
   # ---------------------------------------------------------------------------
