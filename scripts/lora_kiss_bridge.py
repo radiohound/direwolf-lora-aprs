@@ -148,8 +148,13 @@ class LoRaRFRadio:
             raise ValueError(f"Unsupported chip: {self._chip}")
 
         # SPI bus configuration
-        self._lora.setSPI(spi["bus"], spi["device"],
-                          spi.get("max_speed_hz", 2_000_000))
+        # SX127x uses setSpi (lowercase) — SX126x uses setSPI
+        if self._chip in ("sx1276", "sx1278"):
+            self._lora.setSpi(spi["bus"], spi["device"],
+                              spi.get("max_speed_hz", 2_000_000))
+        else:
+            self._lora.setSPI(spi["bus"], spi["device"],
+                              spi.get("max_speed_hz", 2_000_000))
 
         # GPIO pin configuration
         # LoRaRF setPins(nss, reset, busy, irqPin, txen, rxen)
@@ -212,14 +217,19 @@ class LoRaRFRadio:
 
         self._lora.setSyncWord(sw)
 
-        # TX power — SX1262 uses high-power PA path
+        # TX power
         if self._chip == "sx1262":
             self._lora.setTxPower(dbm, self._lora.TX_POWER_SX1262)
         else:
-            self._lora.setTxPower(dbm)
+            # SX127x requires PA pin argument; RFM9x boards use PA_BOOST path
+            self._lora.setTxPower(dbm, self._lora.TX_POWER_PA_BOOST)
 
         # Boosted LNA for best RX sensitivity
-        self._lora.setRxGain(self._lora.RX_GAIN_BOOSTED)
+        # SX127x setRxGain takes (boost, level) — SX126x takes (gain,)
+        if self._chip in ("sx1276", "sx1278"):
+            self._lora.setRxGain(self._lora.RX_GAIN_BOOSTED, 0)
+        else:
+            self._lora.setRxGain(self._lora.RX_GAIN_BOOSTED)
 
         log.info(
             "RF configured: %.3f MHz  SF%d  BW%g kHz  CR4/%d  SW=0x%02X  %d dBm",
@@ -234,9 +244,14 @@ class LoRaRFRadio:
         self._lora.beginPacket()
         self._lora.write(list(payload), len(payload))
         self._lora.endPacket()
-        status = self._lora.wait(10_000)  # 10 s timeout in ms
-        if status != self._lora.STATUS_TX_DONE:
-            log.warning("TX failed — status=%s", status)
+        result = self._lora.wait(10_000)  # 10 s timeout in ms
+        # SX127x wait() returns bool; SX126x returns a status code
+        if self._chip in ("sx1276", "sx1278"):
+            success = bool(result)
+        else:
+            success = (result == self._lora.STATUS_TX_DONE)
+        if not success:
+            log.warning("TX failed — status=%s", result)
             return False
         log.debug("TX done, %d bytes", len(payload))
         return True
@@ -266,14 +281,20 @@ class LoRaRFRadio:
         a packet arrives or times out.  We loop continuously for iGate use.
         """
         while self._running:
-            # request() → single RX; timeout 0 = wait forever
+            # request() → single RX; timeout 0 = wait forever (SX126x)
+            # SX127x request() / wait() return bool instead of status codes
             self._lora.request()
-            status = self._lora.wait(0)
+            result = self._lora.wait(0)
 
             if not self._running:
                 break
 
-            if status == self._lora.STATUS_RX_DONE:
+            if self._chip in ("sx1276", "sx1278"):
+                got_packet = bool(result)
+            else:
+                got_packet = (result == self._lora.STATUS_RX_DONE)
+
+            if got_packet:
                 length = self._lora.available()
                 if length > 0:
                     payload = bytes(self._lora.read(length))
@@ -285,10 +306,10 @@ class LoRaRFRadio:
                     )
                     if self._rx_callback:
                         self._rx_callback(payload, rssi, snr)
-            elif status == self._lora.STATUS_RX_TIMEOUT:
+            elif self._chip not in ("sx1276", "sx1278") and result == self._lora.STATUS_RX_TIMEOUT:
                 pass   # normal — just loop back into request()
             else:
-                log.debug("RX status: %s", status)
+                log.debug("RX status: %s", result)
 
 
 # ===========================================================================
