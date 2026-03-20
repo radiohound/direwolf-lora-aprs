@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:www.daveakerman.com)",
+      "WebFetch(domain:store.uputronics.com)",
+      "WebFetch(domain:cdn.shopify.com)",
+      "WebFetch(domain:www.pi-in-the-sky.com)",
+      "WebFetch(domain:ukhas.org.uk)",
+      "WebFetch(domain:pinout.xyz)",
+      "Bash(ls \"c:/Users/walte/Downloads/files \\(2\\)/\")",
+      "WebFetch(domain:community.habhub.org)",
+      "WebFetch(domain:groups.google.com)",
+      "WebFetch(domain:www.raspberrypi.org)",
+      "WebFetch(domain:forums.raspberrypi.com)",
+      "WebFetch(domain:projects.drogon.net)",
+      "WebFetch(domain:web.archive.org)",
+      "WebFetch(domain:www.hoperf.com)",
+      "WebFetch(domain:cdn.sparkfun.com)",
+      "WebFetch(domain:digitalconcepts.net.au)"
+    ]
+  }
+}
