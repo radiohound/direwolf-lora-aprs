@@ -43,7 +43,7 @@ log = logging.getLogger("lora_kiss_bridge")
 # Optional imports — LoRaRF and serial are only needed on real hardware
 # ---------------------------------------------------------------------------
 try:
-    from LoRaRF import SX126x, SX127x
+    from LoRaRF import SX126x, SX127x  # type: ignore[import]
     LORALIB_AVAILABLE = True
 except ImportError:
     LORALIB_AVAILABLE = False
@@ -156,17 +156,25 @@ class LoRaRFRadio:
             self._lora.setSPI(spi["bus"], spi["device"],
                               spi.get("max_speed_hz", 2_000_000))
 
-        # GPIO pin configuration
-        # LoRaRF setPins(nss, reset, busy, irqPin, txen, rxen)
-        # Pass -1 for any unused pin
-        self._lora.setPins(
-            p["cs"],
-            p["reset"],
-            p.get("busy",  -1) or -1,
-            p.get("irq",   -1) or -1,
-            p.get("tx_en", -1) or -1,
-            p.get("rx_en", -1) or -1,
-        )
+        # GPIO pin configuration — signatures differ between chip families:
+        #   SX126x: setPins(nss, reset, busy, irq, txen, rxen)
+        #   SX127x: setPins(reset, irq, txen, rxen)  — no nss or busy pin
+        if self._chip in ("sx1276", "sx1278"):
+            self._lora.setPins(
+                p["reset"],
+                p.get("irq",   -1) or -1,
+                p.get("tx_en", -1) or -1,
+                p.get("rx_en", -1) or -1,
+            )
+        else:
+            self._lora.setPins(
+                p["cs"],
+                p["reset"],
+                p.get("busy",  -1) or -1,
+                p.get("irq",   -1) or -1,
+                p.get("tx_en", -1) or -1,
+                p.get("rx_en", -1) or -1,
+            )
 
         # TCXO on DIO3 — SX1262 only
         if self._chip == "sx1262" and tcxo.get("enabled"):
