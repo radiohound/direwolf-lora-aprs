@@ -54,6 +54,21 @@ try:
 except ImportError:
     SERIAL_AVAILABLE = False
 
+# ---------------------------------------------------------------------------
+# Patch rpi-lgpio 0.6 bug: setup(pin, OUT) calls gpio_read() on an unclaimed
+# pin, raising 'GPIO not allocated'.  Providing initial=0 skips that read.
+# ---------------------------------------------------------------------------
+try:
+    import RPi.GPIO as _GPIO  # type: ignore[import]
+    _orig_gpio_setup = _GPIO.setup
+    def _gpio_setup_fixed(channel, direction, **kwargs):
+        if direction == _GPIO.OUT and 'initial' not in kwargs:
+            kwargs['initial'] = 0
+        return _orig_gpio_setup(channel, direction, **kwargs)
+    _GPIO.setup = _gpio_setup_fixed
+except Exception:
+    pass
+
 
 # ===========================================================================
 # KISS framing
