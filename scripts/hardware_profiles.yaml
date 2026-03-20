@@ -1,0 +1,240 @@
+# =============================================================================
+# LoRa APRS iGate — Hardware Profiles
+# =============================================================================
+# Each profile maps to a physical LoRa module wired to a Raspberry Pi (or
+# compatible SBC).  Pin numbers are BCM GPIO numbers unless noted.
+#
+# Chip options:  sx1262  |  sx1276  |  sx1278
+#
+# Add your own profile at the bottom following the same structure.
+# =============================================================================
+
+profiles:
+
+  # ---------------------------------------------------------------------------
+  # MeshAdv-Pi E22-900M30S  (SX1262)
+  # https://github.com/chrismyers2000/MeshAdv-Pi-Hat
+  # Pinout sourced from:
+  #   bin/config.d/lora-MeshAdv-900M30S.yaml @ meshtastic/firmware
+  # ---------------------------------------------------------------------------
+  meshadv:
+    description: "MeshAdv-Pi Hat — Ebyte E22-900M30S (SX1262, 900 MHz, 30 dBm)"
+    chip: sx1262
+    spi:
+      bus: 0
+      device: 0          # SPI CE0 — note: CS is bit-banged via cs_pin below
+      max_speed_hz: 2000000
+    pins:
+      cs:     21         # SPI chip-select (bit-banged, BCM 21)
+      irq:    16         # DIO1 — packet done / RX done interrupt
+      busy:   20         # BUSY line — must be low before any SPI transaction
+      reset:  18         # Active-low hardware reset
+      tx_en:  13         # TX-enable PA switch
+      rx_en:  12         # RX-enable LNA switch
+    tcxo:
+      enabled: true
+      voltage: 1.8       # DIO3 drives TCXO at 1.8 V
+      delay_ms: 5        # TCXO stabilisation time
+    # 900M30S can do up to 30 dBm; keep at 22 for regulatory headroom
+    max_tx_power_dbm: 22
+
+  # ---------------------------------------------------------------------------
+  # Ebyte E22-900M30S — standalone SMD breakout wired to Raspberry Pi
+  # https://www.cdebyte.com/products/E22-900M30S
+  # Datasheet: E22-900M30S_Usermanual_EN_v1.5
+  #
+  # Module pin → RPi BCM GPIO mapping (standard breakout-to-Pi wiring):
+  #
+  #   E22 pin   Signal    RPi BCM   RPi physical
+  #   ────────  ────────  ────────  ────────────
+  #   M0/NSS    SPI CS    8         Pin 24  (SPI0 CE0)
+  #   SCK       SPI CLK   11        Pin 23  (SPI0 CLK)
+  #   MOSI      SPI MOSI  10        Pin 19  (SPI0 MOSI)
+  #   MISO      SPI MISO  9         Pin 21  (SPI0 MISO)
+  #   DIO1      IRQ       24        Pin 18
+  #   BUSY      BUSY      23        Pin 16
+  #   RST       RESET     25        Pin 22
+  #   RXEN      RX enable 22        Pin 15
+  #   VCC       3.3 V     3V3       Pin 17
+  #   GND       Ground    GND       Pin 20
+  #
+  # E22-900M30S specific hardware notes:
+  #   - DIO2 is tied internally to TXEN on this module — the built-in RF
+  #     switch is driven automatically by the SX1262.  No MCU GPIO needed
+  #     for tx_en; set to null.
+  #   - DIO3 supplies the onboard 32 MHz TCXO.  Configured via SX1262
+  #     SetDio3AsTCXOCtrl command (tcxo.enabled: true below), not a pin.
+  #   - Max output power is 30 dBm (1 W).  Keep tx_power_dbm ≤ 22 unless
+  #     you are licensed and within local EIRP limits.
+  #   - Supply voltage: 2.5 – 5.5 V.  Use 3.3 V when powering from RPi
+  #     3V3 pin; add 100 µF bulk capacitor near VCC for TX bursts.
+  # ---------------------------------------------------------------------------
+  e22_900m30s:
+    description: "Ebyte E22-900M30S standalone breakout (SX1262, 868/915 MHz, 30 dBm)"
+    chip: sx1262
+    spi:
+      bus: 0
+      device: 0            # CE0 — hardware CS via BCM 8
+      max_speed_hz: 2000000
+    pins:
+      cs:     8            # SPI CE0 (BCM 8, physical pin 24)
+      irq:    24           # DIO1 interrupt (BCM 24, physical pin 18)
+      busy:   23           # BUSY (BCM 23, physical pin 16)
+      reset:  25           # RST active-low (BCM 25, physical pin 22)
+      tx_en:  null         # DIO2 → TXEN is handled internally by the module
+      rx_en:  22           # RXEN must be driven by MCU (BCM 22, physical pin 15)
+    tcxo:
+      enabled: true
+      voltage: 1.8         # DIO3 TCXO control voltage — 1.8 V per Ebyte schematic
+      delay_ms: 5          # TCXO warmup before frequency lock
+    max_tx_power_dbm: 22   # Legal default; module supports up to 30 dBm
+
+  # ---------------------------------------------------------------------------
+  # Ebyte E22-400M30S — standalone SMD breakout wired to Raspberry Pi
+  # https://www.cdebyte.com/products/E22-400M30S
+  # Datasheet: E22-400M30S_Usermanual_EN_v1.20
+  #
+  # Module pin → RPi BCM GPIO mapping (standard breakout-to-Pi wiring):
+  #
+  #   E22 pin   Signal    RPi BCM   RPi physical
+  #   ────────  ────────  ────────  ────────────
+  #   NSS       SPI CS    8         Pin 24  (SPI0 CE0)
+  #   SCK       SPI CLK   11        Pin 23  (SPI0 CLK)
+  #   MOSI      SPI MOSI  10        Pin 19  (SPI0 MOSI)
+  #   MISO      SPI MISO  9         Pin 21  (SPI0 MISO)
+  #   DIO1      IRQ       24        Pin 18
+  #   BUSY      BUSY      23        Pin 16
+  #   RST       RESET     25        Pin 22
+  #   TXEN      TX enable 17        Pin 11
+  #   RXEN      RX enable 27        Pin 13
+  #   VCC       3.3 V     3V3       Pin 17
+  #   GND       Ground    GND       Pin 20
+  #
+  # E22-400M30S specific hardware notes:
+  #   - Core chip is SX1268, NOT SX1262.  SX1268 is a frequency-restricted
+  #     variant (410–493 MHz) with an identical register map and SPI command
+  #     set.  The LoRaRF SX126x driver works without modification.
+  #   - Unlike the 900M30S, the 400M30S does NOT tie DIO2 to TXEN internally.
+  #     Both TXEN and RXEN must be driven by the MCU.  LoRaRF handles this
+  #     automatically when tx_en and rx_en are set below.
+  #   - DIO3 supplies the onboard 32 MHz TCXO — same as 900M30S.
+  #   - Frequency range: 410–493 MHz.  Standard LoRa APRS in Region 1 and
+  #     Region 3 is 433.775 MHz — set in aprs_rf.frequency_mhz below.
+  #   - Max output power: 30 dBm (1 W).  Keep tx_power_dbm ≤ 22 for
+  #     regulatory compliance unless you have a specific licence.
+  #   - Supply voltage: 2.5–5.5 V.  Use 3.3 V from RPi 3V3 rail.
+  #     Add 100 µF bulk capacitor near VCC for TX current spikes.
+  # ---------------------------------------------------------------------------
+  e22_400m30s:
+    description: "Ebyte E22-400M30S standalone breakout (SX1268, 433/470 MHz, 30 dBm)"
+    chip: sx1262             # SX1268 uses the same driver as SX1262 — identical register map
+    spi:
+      bus: 0
+      device: 0              # CE0 — hardware CS via BCM 8
+      max_speed_hz: 2000000
+    pins:
+      cs:     8              # SPI CE0 (BCM 8, physical pin 24)
+      irq:    24             # DIO1 interrupt (BCM 24, physical pin 18)
+      busy:   23             # BUSY (BCM 23, physical pin 16)
+      reset:  25             # RST active-low (BCM 25, physical pin 22)
+      tx_en:  17             # TXEN — must be MCU-driven on 400M30S (BCM 17, pin 11)
+      rx_en:  27             # RXEN — must be MCU-driven on 400M30S (BCM 27, pin 13)
+    tcxo:
+      enabled: true
+      voltage: 1.8           # DIO3 TCXO control voltage — 1.8 V per Ebyte schematic
+      delay_ms: 5            # TCXO warmup before frequency lock
+    max_tx_power_dbm: 22     # Legal default; module supports up to 30 dBm
+
+  # ---------------------------------------------------------------------------
+  # Generic Ebyte E22-400M33S / E22-900M33S  (SX1262)
+  # Standard 8-pin breakout wired to RPi SPI0
+  # ---------------------------------------------------------------------------
+  ebyte_e22:
+    description: "Ebyte E22-xM33S generic breakout (SX1262)"
+    chip: sx1262
+    spi:
+      bus: 0
+      device: 0
+      max_speed_hz: 2000000
+    pins:
+      cs:     8          # CE0
+      irq:    24
+      busy:   23
+      reset:  25
+      tx_en:  null       # Some boards omit separate PA switch
+      rx_en:  null
+    tcxo:
+      enabled: true
+      voltage: 1.8
+      delay_ms: 5
+    max_tx_power_dbm: 22
+
+  # ---------------------------------------------------------------------------
+  # TTGO / Heltec LoRa32 via USB-serial KISS bridge
+  # Use when the LoRa module is on a separate MCU exposing KISS over UART
+  # ---------------------------------------------------------------------------
+  ttgo_uart:
+    description: "TTGO LoRa32 / Heltec over USB-UART KISS TNC"
+    chip: external_kiss  # Handled by external MCU; bridge just passes through
+    serial:
+      port: /dev/ttyUSB0
+      baud: 115200
+    pins: {}             # No direct GPIO — MCU handles the radio
+    max_tx_power_dbm: 20
+
+  # ---------------------------------------------------------------------------
+  # Generic SX1276 / SX1278 (older LoRa modules, Ra-02, etc.)
+  # No TX/RX switch pins, no TCXO
+  # ---------------------------------------------------------------------------
+  generic_sx1276:
+    description: "Generic SX1276/SX1278 breakout (Ra-02, RFM95W, etc.)"
+    chip: sx1276
+    spi:
+      bus: 0
+      device: 0
+      max_speed_hz: 5000000
+    pins:
+      cs:     8
+      irq:    24         # DIO0 on SX1276
+      busy:   null       # SX1276 has no BUSY pin
+      reset:  25
+      tx_en:  null
+      rx_en:  null
+    tcxo:
+      enabled: false
+    max_tx_power_dbm: 17
+
+
+# =============================================================================
+# LoRa APRS RF Parameters
+# Shared across all hardware profiles — change only if your regional plan
+# differs from the defaults below.
+# =============================================================================
+aprs_rf:
+  # Standard LoRa APRS frequencies by region
+  # Uncomment the one that matches your location.
+  frequency_mhz: 433.775      # Region 1 (Europe, Africa, Middle East) & most of world
+  # frequency_mhz: 433.775    # Region 3 (Asia-Pacific) — same as above
+  # frequency_mhz: 144.390    # Not LoRa — this is FM APRS; use audio TNC instead
+  # frequency_mhz: 915.000    # Region 2 (Americas) experimental — check local rules
+
+  bandwidth_khz:   125        # 125 kHz — standard for LoRa APRS
+  spreading_factor: 12        # SF12 — maximum range, ~293 bps
+  coding_rate:      5         # 4/5
+  sync_word:        0x12      # LoRa APRS sync word (0x12 = private network)
+  preamble_length:  8
+  crc_enabled:      true
+  implicit_header:  false     # Explicit header mode (includes length in packet)
+  tx_power_dbm:     20        # Override per-session; never exceed hardware max
+  output_power_dbm: 20
+
+
+# =============================================================================
+# KISS TNC interface exposed to Direwolf
+# =============================================================================
+kiss_tnc:
+  # "pty"  — creates a pseudo-terminal; Direwolf uses  SERIALKISS /dev/pts/N
+  # "tcp"  — listens on a TCP port;     Direwolf uses  KISSPORT 8001
+  mode: pty
+  tcp_port: 8001             # Used when mode == tcp
+  pty_symlink: /tmp/kiss_lora  # Stable symlink → actual PTY device

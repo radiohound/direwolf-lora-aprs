@@ -1,0 +1,59 @@
+# =============================================================================
+# lora-kiss-bridge.service
+# Systemd unit for the LoRa → KISS TNC bridge
+# Install: sudo cp lora-kiss-bridge.service /etc/systemd/system/
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now lora-kiss-bridge
+# =============================================================================
+[Unit]
+Description=LoRa KISS TNC Bridge (lora_kiss_bridge.py)
+After=network.target
+# Must start before Direwolf
+Before=direwolf-lora.service
+
+[Service]
+Type=simple
+User=pi
+Group=spi
+# Adjust paths to match your installation
+WorkingDirectory=/opt/lora_aprs
+ExecStart=/usr/bin/python3 /opt/lora_aprs/lora_kiss_bridge.py \
+          --profile meshadv \
+          --config  /opt/lora_aprs/hardware_profiles.yaml \
+          --log-level INFO
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+# Give the bridge time to create the PTY before Direwolf starts
+ExecStartPost=/bin/sleep 2
+
+[Install]
+WantedBy=multi-user.target
+
+
+# =============================================================================
+# direwolf-lora.service
+# Systemd unit for Direwolf iGate (separate from any audio Direwolf instance)
+# Install: sudo cp direwolf-lora.service /etc/systemd/system/
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now direwolf-lora
+# =============================================================================
+[Unit]
+Description=Direwolf LoRa APRS iGate
+After=network-online.target lora-kiss-bridge.service
+Wants=network-online.target
+Requires=lora-kiss-bridge.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/opt/lora_aprs
+ExecStart=/usr/local/bin/direwolf -c /opt/lora_aprs/direwolf.conf -t 0
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
