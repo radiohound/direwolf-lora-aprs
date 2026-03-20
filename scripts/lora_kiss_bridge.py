@@ -60,6 +60,8 @@ except ImportError:
 # ---------------------------------------------------------------------------
 try:
     import RPi.GPIO as _GPIO  # type: ignore[import]
+    # Release any stale GPIO claims from a previous crashed run
+    _GPIO.cleanup()
     _orig_gpio_setup = _GPIO.setup
     def _gpio_setup_fixed(channel, direction, **kwargs):
         if direction == _GPIO.OUT and 'initial' not in kwargs:
