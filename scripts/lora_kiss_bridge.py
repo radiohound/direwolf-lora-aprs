@@ -870,6 +870,14 @@ class LoRaKISSBridge:
             log.warning("RX: cannot decode payload as text, dropping")
             return
         log.info("RX ← LoRa: %s  (RSSI=%d dBm  SNR=%.1f dB)", tnc2, rssi, snr)
+
+        # Track source callsign for IS→RF heard-station filtering
+        try:
+            src = tnc2[:tnc2.index(">")].strip().upper()
+            self._heard_rf[src] = time.time()
+        except ValueError:
+            pass
+
         if self._aprs:
             self._aprs.upload(_add_igate_path(tnc2, self._aprs_cfg.get("callsign", "N0CALL")))
         else:
@@ -878,6 +886,44 @@ class LoRaKISSBridge:
                 log.warning("RX: TNC2→AX.25 failed for: %s", tnc2)
                 return
             self._tnc.send_to_direwolf(ax25)
+
+    def _on_is_packet(self, tnc2: str):
+        """Gate an APRS-IS packet to LoRa RF if it meets igtx criteria."""
+        if not self._igtx_cfg.get("enabled", True):
+            return
+
+        # Only gate message packets (info starts with ':')
+        try:
+            colon = tnc2.index(":")
+            info = tnc2[colon + 1:]
+        except ValueError:
+            return
+        if not info.startswith(":"):
+            return
+
+        # Extract addressee (9-char padded field after first ':')
+        addressee = info[1:10].strip().upper()
+
+        # Only gate to stations heard over LoRa RF recently
+        heard_ttl = self._igtx_cfg.get("heard_ttl_s", 1800)
+        last_heard = self._heard_rf.get(addressee, 0)
+        if time.time() - last_heard > heard_ttl:
+            log.debug("IS→RF: %s not heard recently, skipping", addressee)
+            return
+
+        # Rate limiting: max N packets per period
+        max_pkts = self._igtx_cfg.get("max_packets", 3)
+        period   = self._igtx_cfg.get("period_s", 600)
+        now = time.time()
+        self._igtx_times = [t for t in self._igtx_times if now - t < period]
+        if len(self._igtx_times) >= max_pkts:
+            log.warning("IS→RF: rate limit reached (%d/%ds), dropping", max_pkts, period)
+            return
+
+        self._igtx_times.append(now)
+        self._tx_count += 1
+        log.info("IS→RF → LoRa: %s", tnc2)
+        self._radio.transmit(tnc2.encode("ascii", errors="replace"))
 
     def _on_tx_request(self, payload: bytes):
         self._tx_count += 1
