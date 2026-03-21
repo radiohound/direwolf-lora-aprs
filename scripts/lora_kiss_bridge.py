@@ -491,9 +491,13 @@ class KISSServer:
     # -----------------------------------------------------------------------
 
     def _start_pty(self):
+        import tty as _tty
         master, slave = pty.openpty()
         self._master_fd = master
         slave_name = os.ttyname(slave)
+        # Put the slave in raw mode so binary KISS frames pass through
+        # immediately without line-buffering or special-character processing.
+        _tty.setraw(slave)
         try:
             os.unlink(self.pty_link)
         except FileNotFoundError:
