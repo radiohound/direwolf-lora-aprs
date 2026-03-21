@@ -259,6 +259,10 @@ class LoRaRFRadio:
         self._rx_callback  = None
         self._rx_thread    = None
         self._running      = False
+        # Serialize TX and RX — both must not touch the radio at the same time.
+        # _rx_loop holds this lock for at most ~1 s (wait timeout) per iteration,
+        # so transmit() waits at most 1 s before it can acquire the radio.
+        self._radio_lock   = threading.Lock()
 
     # -----------------------------------------------------------------------
     # Lifecycle
@@ -382,10 +386,13 @@ class LoRaRFRadio:
     # -----------------------------------------------------------------------
 
     def transmit(self, payload: bytes) -> bool:
-        self._lora.beginPacket()
-        self._lora.write(list(payload), len(payload))
-        self._lora.endPacket()
-        result = self._lora.wait(10_000)  # 10 s timeout in ms
+        # Acquire the radio lock so we don't clash with the RX loop.
+        # _rx_loop uses wait(1000) so it releases the lock every ≤1 s.
+        with self._radio_lock:
+            self._lora.beginPacket()
+            self._lora.write(list(payload), len(payload))
+            self._lora.endPacket()
+            result = self._lora.wait(10_000)  # 10 s timeout in ms
         # SX127x wait() returns bool; SX126x returns a status code
         if self._chip in ("sx1276", "sx1278"):
             success = bool(result)
@@ -420,12 +427,17 @@ class LoRaRFRadio:
         LoRaRF receive loop.
         request() puts the radio into single-receive mode; wait() blocks until
         a packet arrives or times out.  We loop continuously for iGate use.
+
+        Uses wait(1000) — a 1-second timeout — instead of wait(0) (infinite)
+        so that the radio_lock is released every ≤1 s and transmit() can
+        acquire it without waiting for an actual packet to arrive.
         """
         while self._running:
-            # request() → single RX; timeout 0 = wait forever (SX126x)
-            # SX127x request() / wait() return bool instead of status codes
-            self._lora.request()
-            result = self._lora.wait(0)
+            # Hold the radio lock only for the duration of one request+wait cycle
+            # (≤1 s).  transmit() waits for this lock before touching the radio.
+            with self._radio_lock:
+                self._lora.request()
+                result = self._lora.wait(1000)  # 1 s max; release lock for TX
 
             if not self._running:
                 break
@@ -447,10 +459,9 @@ class LoRaRFRadio:
                     )
                     if self._rx_callback:
                         self._rx_callback(payload, rssi, snr)
-            elif self._chip not in ("sx1276", "sx1278") and result == self._lora.STATUS_RX_TIMEOUT:
-                pass   # normal — just loop back into request()
-            else:
-                log.debug("RX status: %s", result)
+            elif result == (self._lora.STATUS_RX_TIMEOUT if hasattr(self._lora, "STATUS_RX_TIMEOUT") else None):
+                pass   # SX126x normal timeout — loop back into request()
+            # SX127x returns False on timeout — that is also normal, just loop
 
 
 # ===========================================================================
