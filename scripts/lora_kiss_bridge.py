@@ -688,6 +688,89 @@ class KISSServer:
 
 
 # ===========================================================================
+# APRS-IS gateway
+# ===========================================================================
+
+def _add_igate_path(tnc2: str, callsign: str) -> str:
+    """Insert ,qAR,{callsign} into the TNC2 path so APRS-IS records the igate."""
+    try:
+        colon = tnc2.index(":")
+        return f"{tnc2[:colon]},qAR,{callsign}{tnc2[colon:]}"
+    except ValueError:
+        return tnc2
+
+
+class APRSISGateway:
+    """Direct APRS-IS TCP connection — uploads packets and sends keepalives."""
+
+    def __init__(self, cfg: dict):
+        self._server   = cfg.get("server", "rotate.aprs2.net")
+        self._port     = int(cfg.get("port", 14580))
+        self._callsign = cfg["callsign"]
+        self._passcode = str(cfg["passcode"])
+        self._filter   = cfg.get("filter", "")
+        self._sock     = None
+        self._lock     = threading.Lock()
+
+    def start(self):
+        threading.Thread(target=self._connect_loop, daemon=True).start()
+        threading.Thread(target=self._keepalive_loop, daemon=True).start()
+
+    def _connect_loop(self):
+        while True:
+            try:
+                self._run()
+            except Exception as exc:
+                log.warning("APRS-IS disconnected: %s — reconnect in 15 s", exc)
+            with self._lock:
+                if self._sock:
+                    try:
+                        self._sock.close()
+                    except OSError:
+                        pass
+                    self._sock = None
+            time.sleep(15)
+
+    def _run(self):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(60)
+        sock.connect((self._server, self._port))
+        rf = sock.makefile("r", encoding="ascii", errors="replace")
+        log.info("APRS-IS: %s", rf.readline().strip())
+        login = f"user {self._callsign} pass {self._passcode} vers lora_bridge 1.0"
+        if self._filter:
+            login += f" filter {self._filter}"
+        sock.sendall((login + "\r\n").encode("ascii"))
+        log.info("APRS-IS login: %s", rf.readline().strip())
+        with self._lock:
+            self._sock = sock
+        for _ in rf:
+            pass  # drain server output (keepalives, IS→RF packets)
+
+    def _keepalive_loop(self):
+        while True:
+            time.sleep(25)
+            with self._lock:
+                if self._sock:
+                    try:
+                        self._sock.sendall(b"# keepalive\r\n")
+                    except OSError:
+                        pass
+
+    def upload(self, tnc2: str):
+        with self._lock:
+            if not self._sock:
+                log.warning("APRS-IS not connected, dropping: %s", tnc2)
+                return
+            try:
+                self._sock.sendall((tnc2.strip() + "\r\n").encode("ascii"))
+                log.info("IS ← RF: %s", tnc2)
+            except OSError as exc:
+                log.warning("APRS-IS upload error: %s", exc)
+                self._sock = None
+
+
+# ===========================================================================
 # Main bridge
 # ===========================================================================
 
@@ -708,10 +791,12 @@ class LoRaKISSBridge:
         self._profile      = profiles[profile_name]
         self._rf_cfg       = cfg.get("aprs_rf", {})
         self._kiss_cfg     = cfg.get("kiss_tnc", {})
+        self._aprs_cfg     = cfg.get("aprs_is", {})
 
         self._radio = build_radio(self._profile)
         self._tnc   = KISSServer(self._kiss_cfg)
         self._tnc.on_outbound = self._on_tx_request
+        self._aprs  = APRSISGateway(self._aprs_cfg) if self._aprs_cfg else None
 
         self._rx_count = 0
         self._tx_count = 0
@@ -720,6 +805,10 @@ class LoRaKISSBridge:
         self._radio.begin()
         self._radio.configure(self._rf_cfg)
         self._tnc.start()
+        if self._aprs:
+            self._aprs.start()
+            if self._aprs_cfg.get("beacon"):
+                threading.Thread(target=self._beacon_loop, daemon=True).start()
         self._radio.start_receive(self._on_rx)
 
         log.info(
@@ -739,6 +828,29 @@ class LoRaKISSBridge:
             log.info("Stats — RX packets: %d  TX packets: %d",
                      self._rx_count, self._tx_count)
 
+    def _beacon_loop(self):
+        bcfg    = self._aprs_cfg.get("beacon", {})
+        call    = self._aprs_cfg.get("callsign", "N0CALL")
+        lat     = bcfg.get("lat",     "0000.00N")
+        lon     = bcfg.get("lon",     "00000.00W")
+        overlay = bcfg.get("overlay", "R")
+        symbol  = bcfg.get("symbol",  "&")
+        comment = bcfg.get("comment", "LoRa APRS iGate")
+        delay   = bcfg.get("delay_s",    30)
+        every   = bcfg.get("interval_s", 1800)
+
+        info      = f"!{lat}{overlay}{lon}{symbol}{comment}"
+        beacon_rf = f"{call}>APZLOR:{info}"
+        beacon_is = f"{call}>APZLOR,TCPIP*:{info}"
+
+        time.sleep(delay)
+        while True:
+            log.info("Beacon → LoRa RF: %s", beacon_rf)
+            self._radio.transmit(beacon_rf.encode("ascii"))
+            if self._aprs:
+                self._aprs.upload(beacon_is)
+            time.sleep(every)
+
     def _on_rx(self, payload: bytes, rssi: int, snr: float):
         self._rx_count += 1
         try:
@@ -747,11 +859,14 @@ class LoRaKISSBridge:
             log.warning("RX: cannot decode payload as text, dropping")
             return
         log.info("RX ← LoRa: %s  (RSSI=%d dBm  SNR=%.1f dB)", tnc2, rssi, snr)
-        ax25 = tnc2_to_ax25(tnc2)
-        if ax25 is None:
-            log.warning("RX: TNC2→AX.25 failed for: %s", tnc2)
-            return
-        self._tnc.send_to_direwolf(ax25)
+        if self._aprs:
+            self._aprs.upload(_add_igate_path(tnc2, self._aprs_cfg.get("callsign", "N0CALL")))
+        else:
+            ax25 = tnc2_to_ax25(tnc2)
+            if ax25 is None:
+                log.warning("RX: TNC2→AX.25 failed for: %s", tnc2)
+                return
+            self._tnc.send_to_direwolf(ax25)
 
     def _on_tx_request(self, payload: bytes):
         self._tx_count += 1

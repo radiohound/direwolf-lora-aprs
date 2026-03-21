@@ -279,13 +279,29 @@ aprs_rf:
 
 
 # =============================================================================
-# KISS TNC interface exposed to Direwolf
+# KISS TNC interface (optional — only needed if using Direwolf alongside bridge)
 # =============================================================================
 kiss_tnc:
-  # "tcp_client" — bridge connects TO Direwolf's KISSPORT (recommended)
-  # "pty"        — creates a pseudo-terminal; Direwolf uses  SERIALKISS /dev/pts/N
-  # "tcp"        — bridge listens on a TCP port; Direwolf uses  KISSPORT 8001
   mode: tcp_client
   tcp_host: 127.0.0.1
-  tcp_port: 8001             # Direwolf's KISSPORT
-  pty_symlink: /tmp/kiss_lora  # Used only when mode == pty
+  tcp_port: 8001
+  pty_symlink: /tmp/kiss_lora
+
+
+# =============================================================================
+# APRS-IS iGate — bridge connects directly (no Direwolf needed)
+# =============================================================================
+aprs_is:
+  server:    rotate.aprs2.net
+  port:      14580
+  callsign:  K6ATV-12
+  passcode:  12160
+
+  beacon:
+    delay_s:    30        # first beacon 30 s after start
+    interval_s: 1800      # repeat every 30 minutes
+    lat:     "3700.36N"
+    lon:     "12134.08W"
+    overlay: "R"          # R = receive igate
+    symbol:  "&"          # & = gateway
+    comment: "LoRa APRS iGate 433.775 MHz SF12 BW125"
