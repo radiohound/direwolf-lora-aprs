@@ -223,7 +223,7 @@ profiles:
     pins:
       cs:     7            # SPI CE1 (BCM 7, physical pin 26)
       reset:  22           # RESET active-low (BCM 22, physical pin 15)
-      irq:    25           # DIO0 — RX done / TX done interrupt (BCM 25, pin 22)
+      irq:    null         # Use SPI register polling — GPIO interrupt not needed
       busy:   null         # SX1276 has no BUSY pin
       tx_en:  null         # Internal RF switch — no MCU GPIO needed
       rx_en:  null

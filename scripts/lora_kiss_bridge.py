@@ -264,6 +264,14 @@ class LoRaRFRadio:
         # drains the queue between receive windows so the radio is never
         # accessed from two threads simultaneously.
         self._tx_queue = queue.Queue()
+        # SX127x wait() timeout is in seconds; SX126x is in milliseconds.
+        # Pre-compute the right values so callers don't need to know.
+        if self._chip in ("sx1276", "sx1278"):
+            self._wait_rx_timeout  = 1      # 1 s receive window
+            self._wait_tx_timeout  = 10     # 10 s TX done timeout
+        else:
+            self._wait_rx_timeout  = 1000   # 1000 ms receive window
+            self._wait_tx_timeout  = 10_000 # 10 000 ms TX done timeout
 
     # -----------------------------------------------------------------------
     # Lifecycle
@@ -418,7 +426,7 @@ class LoRaRFRadio:
         self._lora.beginPacket()
         self._lora.write(list(payload), len(payload))
         self._lora.endPacket()
-        result = self._lora.wait(10_000)   # 10 s timeout in ms
+        result = self._lora.wait(self._wait_tx_timeout)
         if self._chip in ("sx1276", "sx1278"):
             success = bool(result)
         else:
@@ -452,7 +460,7 @@ class LoRaRFRadio:
 
             # --- single receive window (1 s timeout so TX isn't delayed) -
             self._lora.request()
-            result = self._lora.wait(1000)   # 1 s; returns to check TX queue
+            result = self._lora.wait(self._wait_rx_timeout)  # returns to check TX queue
 
             if not self._running:
                 break
