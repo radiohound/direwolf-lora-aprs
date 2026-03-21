@@ -55,13 +55,35 @@ except ImportError:
     SERIAL_AVAILABLE = False
 
 # ---------------------------------------------------------------------------
+# Force-free any GPIO pins left claimed by a previous crashed run.
+# RPi.GPIO.cleanup() only releases pins owned by *this* process; a crashed
+# prior run leaves lgpio chip handles open.  We free them at the lgpio level
+# before RPi.GPIO tries to claim them, avoiding 'GPIO busy' on restart.
+# ---------------------------------------------------------------------------
+def _force_free_gpio_pins(pins):
+    """Release pins via lgpio directly, ignoring errors if already free."""
+    try:
+        import lgpio as _lgpio  # type: ignore[import]
+        _h = _lgpio.gpiochip_open(0)
+        for _pin in pins:
+            if _pin is not None and _pin >= 0:
+                try:
+                    _lgpio.gpio_free(_h, _pin)
+                except Exception:
+                    pass
+        _lgpio.gpiochip_close(_h)
+    except Exception:
+        pass
+
+# Pre-free all pins any profile might use so a crashed prior run can't block us
+_force_free_gpio_pins([4, 5, 6, 7, 8, 12, 13, 16, 17, 18, 20, 21, 22, 23, 24, 25, 26, 27])
+
+# ---------------------------------------------------------------------------
 # Patch rpi-lgpio 0.6 bug: setup(pin, OUT) calls gpio_read() on an unclaimed
 # pin, raising 'GPIO not allocated'.  Providing initial=0 skips that read.
 # ---------------------------------------------------------------------------
 try:
     import RPi.GPIO as _GPIO  # type: ignore[import]
-    # Release any stale GPIO claims from a previous crashed run,
-    # then restore BCM mode which cleanup() resets.
     _GPIO.cleanup()
     _GPIO.setmode(_GPIO.BCM)
     _orig_gpio_setup = _GPIO.setup
