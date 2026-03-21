@@ -701,7 +701,8 @@ def _add_igate_path(tnc2: str, callsign: str) -> str:
 
 
 class APRSISGateway:
-    """Direct APRS-IS TCP connection — uploads packets and sends keepalives."""
+    """Direct APRS-IS TCP connection — uploads packets, sends keepalives,
+    and delivers incoming IS packets to on_is_packet callback."""
 
     def __init__(self, cfg: dict):
         self._server   = cfg.get("server", "rotate.aprs2.net")
@@ -711,6 +712,7 @@ class APRSISGateway:
         self._filter   = cfg.get("filter", "")
         self._sock     = None
         self._lock     = threading.Lock()
+        self.on_is_packet = None   # callback(tnc2: str) for IS→RF gating
 
     def start(self):
         threading.Thread(target=self._connect_loop, daemon=True).start()
@@ -744,8 +746,10 @@ class APRSISGateway:
         log.info("APRS-IS login: %s", rf.readline().strip())
         with self._lock:
             self._sock = sock
-        for _ in rf:
-            pass  # drain server output (keepalives, IS→RF packets)
+        for line in rf:
+            line = line.strip()
+            if line and not line.startswith("#") and self.on_is_packet:
+                self.on_is_packet(line)
 
     def _keepalive_loop(self):
         while True:
@@ -793,13 +797,20 @@ class LoRaKISSBridge:
         self._kiss_cfg     = cfg.get("kiss_tnc", {})
         self._aprs_cfg     = cfg.get("aprs_is", {})
 
+        self._igtx_cfg = self._aprs_cfg.get("igtx", {})
+
         self._radio = build_radio(self._profile)
         self._tnc   = KISSServer(self._kiss_cfg)
         self._tnc.on_outbound = self._on_tx_request
         self._aprs  = APRSISGateway(self._aprs_cfg) if self._aprs_cfg else None
+        if self._aprs:
+            self._aprs.on_is_packet = self._on_is_packet
 
-        self._rx_count = 0
-        self._tx_count = 0
+        self._rx_count  = 0
+        self._tx_count  = 0
+        # IS→RF state
+        self._heard_rf  = {}   # callsign → last heard time (float)
+        self._igtx_times = []  # timestamps of recent IS→RF transmissions
 
     def start(self):
         self._radio.begin()
