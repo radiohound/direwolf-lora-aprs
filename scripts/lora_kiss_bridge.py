@@ -97,6 +97,99 @@ except Exception:
 
 
 # ===========================================================================
+# AX.25 ↔ TNC2 conversion
+#
+# LoRa APRS transmits plain TNC2 text over the air:
+#   K6ATV-12>APRS,WIDE1-1:!3700.36NR12134.08W&LoRa iGate
+#
+# Direwolf communicates in binary AX.25 via KISS.  These helpers convert
+# between the two formats so the bridge is compatible with the wider
+# LoRa APRS ecosystem (OE5BPA iGate, RadioLib devices, etc.).
+# ===========================================================================
+
+def _ax25_decode_addr(raw7: bytes):
+    """Decode one 7-byte AX.25 address field.
+    Returns (callsign_with_ssid, h_bit, last_flag)."""
+    callsign = "".join(chr(b >> 1) for b in raw7[:6]).rstrip()
+    ssid_byte = raw7[6]
+    ssid  = (ssid_byte >> 1) & 0x0F
+    h_bit = bool(ssid_byte & 0x80)
+    last  = bool(ssid_byte & 0x01)
+    full  = f"{callsign}-{ssid}" if ssid else callsign
+    return full, h_bit, last
+
+
+def _ax25_encode_addr(addr_str: str, last: bool = False) -> bytes:
+    """Encode a callsign[-SSID][*] string into a 7-byte AX.25 address field."""
+    h_bit    = addr_str.endswith("*")
+    addr_str = addr_str.rstrip("*")
+    if "-" in addr_str:
+        call, ssid_s = addr_str.rsplit("-", 1)
+        ssid = int(ssid_s) if ssid_s.isdigit() else 0
+    else:
+        call, ssid = addr_str, 0
+    call      = call.upper().ljust(6)[:6]
+    result    = bytearray(7)
+    for i, c in enumerate(call):
+        result[i] = ord(c) << 1
+    ssid_byte = 0x60 | ((ssid & 0x0F) << 1)
+    if last:
+        ssid_byte |= 0x01
+    if h_bit:
+        ssid_byte |= 0x80
+    result[6] = ssid_byte
+    return bytes(result)
+
+
+def ax25_to_tnc2(frame: bytes):
+    """Convert a binary AX.25 UI frame to a TNC2 string, or None on error."""
+    i, addresses = 0, []
+    while True:
+        if i + 7 > len(frame):
+            return None
+        full, h_bit, last = _ax25_decode_addr(frame[i:i + 7])
+        addresses.append(full + ("*" if h_bit else ""))
+        i += 7
+        if last:
+            break
+        if len(addresses) > 8:
+            return None
+    if i + 2 > len(frame) or len(addresses) < 2:
+        return None
+    ctrl, pid = frame[i], frame[i + 1]
+    if ctrl != 0x03 or pid != 0xF0:
+        return None
+    dst, src = addresses[0], addresses[1]
+    path     = addresses[2:]
+    info     = frame[i + 2:].decode("ascii", errors="replace")
+    header   = f"{src}>{dst}" + (("," + ",".join(path)) if path else "")
+    return f"{header}:{info}"
+
+
+def tnc2_to_ax25(tnc2: str):
+    """Convert a TNC2 string to a binary AX.25 UI frame, or None on error."""
+    try:
+        colon = tnc2.index(":")
+    except ValueError:
+        return None
+    header, info = tnc2[:colon], tnc2[colon + 1:]
+    try:
+        gt = header.index(">")
+    except ValueError:
+        return None
+    src   = header[:gt]
+    parts = header[gt + 1:].split(",")
+    dst, path = parts[0], parts[1:]
+    addrs = [dst, src] + path
+    frame = bytearray()
+    for idx, addr in enumerate(addrs):
+        frame += _ax25_encode_addr(addr, last=(idx == len(addrs) - 1))
+    frame += bytes([0x03, 0xF0])
+    frame += info.encode("ascii", errors="replace")
+    return bytes(frame)
+
+
+# ===========================================================================
 # KISS framing
 # ===========================================================================
 
@@ -301,7 +394,7 @@ class LoRaRFRadio:
         if not success:
             log.warning("TX failed — status=%s", result)
             return False
-        log.debug("TX done, %d bytes", len(payload))
+        log.info("TX done, %d bytes", len(payload))
         return True
 
     # -----------------------------------------------------------------------
@@ -624,13 +717,26 @@ class LoRaKISSBridge:
 
     def _on_rx(self, payload: bytes, rssi: int, snr: float):
         self._rx_count += 1
-        log.debug("RX payload hex: %s", payload.hex())
-        self._tnc.send_to_direwolf(payload)
+        try:
+            tnc2 = payload.decode("ascii", errors="replace").strip()
+        except Exception:
+            log.warning("RX: cannot decode payload as text, dropping")
+            return
+        log.info("RX ← LoRa: %s  (RSSI=%d dBm  SNR=%.1f dB)", tnc2, rssi, snr)
+        ax25 = tnc2_to_ax25(tnc2)
+        if ax25 is None:
+            log.warning("RX: TNC2→AX.25 failed for: %s", tnc2)
+            return
+        self._tnc.send_to_direwolf(ax25)
 
     def _on_tx_request(self, payload: bytes):
         self._tx_count += 1
-        log.debug("TX payload hex: %s", payload.hex())
-        self._radio.transmit(payload)
+        tnc2 = ax25_to_tnc2(payload)
+        if tnc2 is None:
+            log.warning("TX: AX.25 decode failed (%d bytes), dropping", len(payload))
+            return
+        log.info("TX → LoRa: %s", tnc2)
+        self._radio.transmit(tnc2.encode("ascii", errors="replace"))
 
     def _shutdown(self, *_):
         log.info("Shutting down…")
