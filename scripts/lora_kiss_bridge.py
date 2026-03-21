@@ -510,21 +510,22 @@ class KISSServer:
     def _pty_read_loop(self):
         import errno as _errno
         buf = b""
+        log.debug("PTY read loop started, master_fd=%s", self._master_fd)
         while True:
             try:
                 r, _, _ = select.select([self._master_fd], [], [], 1.0)
                 if not r:
                     continue
                 data = os.read(self._master_fd, 512)
+                log.debug("PTY read %d bytes: %s", len(data), data.hex())
                 buf += data
-                for frame in kiss_decode(buf):
+                frames = kiss_decode(buf)
+                log.debug("kiss_decode found %d frame(s)", len(frames))
+                for frame in frames:
                     self.on_outbound(frame)
                 buf = b""
             except OSError as exc:
                 if exc.errno == _errno.EIO:
-                    # Slave closed — Direwolf disconnected.  Clear buffer and
-                    # wait; the loop resumes automatically when Direwolf reopens
-                    # the PTY (no restart needed).
                     buf = b""
                     time.sleep(0.5)
                 else:
