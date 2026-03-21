@@ -481,7 +481,10 @@ class LoRaRFRadio:
                         length, rssi, snr,
                     )
                     if self._rx_callback:
-                        self._rx_callback(payload, rssi, snr)
+                        try:
+                            self._rx_callback(payload, rssi, snr)
+                        except Exception as exc:
+                            log.warning("RX callback error (packet dropped): %s", exc)
             # timeout (False for SX127x, STATUS_RX_TIMEOUT for SX126x) is normal
 
 
@@ -801,7 +804,7 @@ class APRSISGateway:
                 log.warning("APRS-IS not connected, dropping: %s", tnc2)
                 return
             try:
-                self._sock.sendall((tnc2.strip() + "\r\n").encode("ascii"))
+                self._sock.sendall((tnc2.strip() + "\r\n").encode("ascii", errors="replace"))
                 log.info("IS ← RF: %s", tnc2)
             except OSError as exc:
                 log.warning("APRS-IS upload error: %s", exc)
