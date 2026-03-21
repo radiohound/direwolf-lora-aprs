@@ -539,13 +539,15 @@ class KISSServer:
     """
     Exposes a KISS TNC endpoint that Direwolf connects to.
 
-    mode "pty" — creates a pseudo-terminal; Direwolf uses SERIALKISS /dev/pts/N
-    mode "tcp" — listens on a TCP port;    Direwolf uses KISSPORT <port>
+    mode "pty"        — creates a pseudo-terminal; Direwolf uses SERIALKISS /dev/pts/N
+    mode "tcp"        — listens on a TCP port;    Direwolf uses KISSPORT <port>
+    mode "tcp_client" — connects TO Direwolf's KISSPORT as a client (recommended)
     """
 
     def __init__(self, cfg: dict):
-        self.mode      = cfg.get("mode", "pty")
+        self.mode      = cfg.get("mode", "tcp_client")
         self.tcp_port  = cfg.get("tcp_port", 8001)
+        self.tcp_host  = cfg.get("tcp_host", "127.0.0.1")
         self.pty_link  = cfg.get("pty_symlink", "/tmp/kiss_lora")
         self._clients  = []
         self._lock     = threading.Lock()
@@ -554,6 +556,8 @@ class KISSServer:
     def start(self):
         if self.mode == "pty":
             self._start_pty()
+        elif self.mode == "tcp_client":
+            self._start_tcp_client()
         else:
             self._start_tcp()
 
@@ -623,6 +627,26 @@ class KISSServer:
                     time.sleep(0.5)
                 else:
                     break
+
+    def _start_tcp_client(self):
+        """Connect to Direwolf's KISSPORT as a TCP client (retries until connected)."""
+        t = threading.Thread(target=self._tcp_client_loop, daemon=True)
+        t.start()
+
+    def _tcp_client_loop(self):
+        while True:
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.connect((self.tcp_host, self.tcp_port))
+                log.info("Connected to Direwolf KISS on %s:%d", self.tcp_host, self.tcp_port)
+                with self._lock:
+                    self._clients = [sock]
+                self._client_read_loop(sock)
+            except OSError as exc:
+                log.warning("Direwolf KISS connect failed (%s) — retrying in 5 s", exc)
+                with self._lock:
+                    self._clients = []
+                time.sleep(5)
 
     def _start_tcp(self):
         srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

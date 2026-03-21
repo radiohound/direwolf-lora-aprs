@@ -282,8 +282,10 @@ aprs_rf:
 # KISS TNC interface exposed to Direwolf
 # =============================================================================
 kiss_tnc:
-  # "pty"  — creates a pseudo-terminal; Direwolf uses  SERIALKISS /dev/pts/N
-  # "tcp"  — listens on a TCP port;     Direwolf uses  KISSPORT 8001
-  mode: pty
-  tcp_port: 8001             # Used when mode == tcp
-  pty_symlink: /tmp/kiss_lora  # Stable symlink → actual PTY device
+  # "tcp_client" — bridge connects TO Direwolf's KISSPORT (recommended)
+  # "pty"        — creates a pseudo-terminal; Direwolf uses  SERIALKISS /dev/pts/N
+  # "tcp"        — bridge listens on a TCP port; Direwolf uses  KISSPORT 8001
+  mode: tcp_client
+  tcp_host: 127.0.0.1
+  tcp_port: 8001             # Direwolf's KISSPORT
+  pty_symlink: /tmp/kiss_lora  # Used only when mode == pty
