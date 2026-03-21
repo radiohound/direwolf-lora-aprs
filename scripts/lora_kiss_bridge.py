@@ -554,7 +554,9 @@ class KISSServer:
         self._master_fd = None
 
     def start(self):
-        if self.mode == "pty":
+        if self.mode == "none":
+            return
+        elif self.mode == "pty":
             self._start_pty()
         elif self.mode == "tcp_client":
             self._start_tcp_client()

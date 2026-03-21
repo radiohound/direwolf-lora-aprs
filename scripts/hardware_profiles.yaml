@@ -282,7 +282,7 @@ aprs_rf:
 # KISS TNC interface (optional — only needed if using Direwolf alongside bridge)
 # =============================================================================
 kiss_tnc:
-  mode: tcp_client
+  mode: none          # disabled — bridge uses direct APRS-IS connection
   tcp_host: 127.0.0.1
   tcp_port: 8001
   pty_symlink: /tmp/kiss_lora
