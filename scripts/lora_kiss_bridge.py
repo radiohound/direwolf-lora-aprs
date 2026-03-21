@@ -906,6 +906,16 @@ class LoRaKISSBridge:
         except Exception:
             log.warning("RX: cannot decode payload as text, dropping")
             return
+
+        # Some LoRa APRS transmitters (PicoTracker, etc.) prepend a non-ASCII
+        # preamble byte before the TNC2 callsign.  Strip everything up to the
+        # first alphanumeric character so APRS-IS gets a clean callsign.
+        import re as _re
+        tnc2 = _re.sub(r'^[^A-Za-z0-9]+', '', tnc2)
+        if not tnc2:
+            log.warning("RX: empty payload after stripping preamble, dropping")
+            return
+
         log.info("RX ← LoRa: %s  (RSSI=%d dBm  SNR=%.1f dB)", tnc2, rssi, snr)
 
         # Track source callsign for IS→RF heard-station filtering
