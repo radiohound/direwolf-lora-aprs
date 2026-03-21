@@ -396,6 +396,39 @@ class LoRaRFRadio:
         )
 
     # -----------------------------------------------------------------------
+    # Throttled IRQ poller (SX127x only)
+    # -----------------------------------------------------------------------
+
+    def _wait_throttled(self, timeout_s: float) -> bool:
+        """
+        Replace LoRaRF's tight-loop wait() for SX127x with a version that
+        sleeps 10 ms between register reads, reducing CPU from ~100% to <1%.
+
+        When an IRQ flag is detected we immediately delegate to the real
+        wait(0) so LoRaRF can do its internal state cleanup (standby mode,
+        FIFO pointer, payload length, etc.).  IRQ flags on SX127x are sticky
+        until cleared by wait(), so the flag will still be set when wait(0)
+        reads it.
+        """
+        REG_IRQ_FLAGS  = 0x12
+        IRQ_TX_DONE    = 0x08
+        IRQ_RX_DONE    = 0x40
+        IRQ_RX_TIMEOUT = 0x80
+        IRQ_CRC_ERR    = 0x20
+        irq_mask = IRQ_TX_DONE | IRQ_RX_DONE | IRQ_RX_TIMEOUT | IRQ_CRC_ERR
+
+        t = time.time()
+        while True:
+            flags = self._lora.readRegister(REG_IRQ_FLAGS)
+            if flags & irq_mask:
+                # Flag set — hand off to LoRaRF for proper state management.
+                # wait(0) finds the flag on its first read and returns fast.
+                return bool(self._lora.wait(0))
+            if timeout_s > 0 and time.time() - t > timeout_s:
+                return False
+            time.sleep(0.01)   # 10 ms ≈ 100 polls/s instead of ~10 000/s
+
+    # -----------------------------------------------------------------------
     # Transmit
     # -----------------------------------------------------------------------
 
@@ -431,7 +464,10 @@ class LoRaRFRadio:
         self._lora.beginPacket()
         self._lora.write(list(payload), len(payload))
         self._lora.endPacket()
-        result = self._lora.wait(self._wait_tx_timeout)
+        if self._chip in ("sx1276", "sx1278"):
+            result = self._wait_throttled(self._wait_tx_timeout)
+        else:
+            result = self._lora.wait(self._wait_tx_timeout)
         if self._chip in ("sx1276", "sx1278"):
             success = bool(result)
         else:
@@ -465,7 +501,10 @@ class LoRaRFRadio:
 
             # --- single receive window (1 s timeout so TX isn't delayed) -
             self._lora.request()
-            result = self._lora.wait(self._wait_rx_timeout)  # returns to check TX queue
+            if self._chip in ("sx1276", "sx1278"):
+                result = self._wait_throttled(self._wait_rx_timeout)
+            else:
+                result = self._lora.wait(self._wait_rx_timeout)  # returns to check TX queue
 
             if not self._running:
                 break
