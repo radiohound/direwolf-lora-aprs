@@ -28,6 +28,7 @@ import argparse
 import logging
 import os
 import pty
+import queue
 import select
 import signal
 import socket
@@ -259,10 +260,10 @@ class LoRaRFRadio:
         self._rx_callback  = None
         self._rx_thread    = None
         self._running      = False
-        # Serialize TX and RX — both must not touch the radio at the same time.
-        # _rx_loop holds this lock for at most ~1 s (wait timeout) per iteration,
-        # so transmit() waits at most 1 s before it can acquire the radio.
-        self._radio_lock   = threading.Lock()
+        # TX requests from any thread are posted here; the single RX/TX loop
+        # drains the queue between receive windows so the radio is never
+        # accessed from two threads simultaneously.
+        self._tx_queue = queue.Queue()
 
     # -----------------------------------------------------------------------
     # Lifecycle
@@ -386,23 +387,13 @@ class LoRaRFRadio:
     # -----------------------------------------------------------------------
 
     def transmit(self, payload: bytes) -> bool:
-        # Acquire the radio lock so we don't clash with the RX loop.
-        # _rx_loop uses wait(1000) so it releases the lock every ≤1 s.
-        with self._radio_lock:
-            self._lora.beginPacket()
-            self._lora.write(list(payload), len(payload))
-            self._lora.endPacket()
-            result = self._lora.wait(10_000)  # 10 s timeout in ms
-        # SX127x wait() returns bool; SX126x returns a status code
-        if self._chip in ("sx1276", "sx1278"):
-            success = bool(result)
-        else:
-            success = (result == self._lora.STATUS_TX_DONE)
-        if not success:
-            log.warning("TX failed — status=%s", result)
-            return False
-        log.info("TX done, %d bytes", len(payload))
-        return True
+        # Post the TX request to the queue so the radio loop executes it
+        # between RX windows — no two threads ever touch the radio at once.
+        done_event  = threading.Event()
+        result_box  = []            # mutable container for the bool result
+        self._tx_queue.put((payload, result_box, done_event))
+        done_event.wait(timeout=30) # block caller until TX completes (or 30 s)
+        return bool(result_box and result_box[0])
 
     # -----------------------------------------------------------------------
     # Receive — runs in a background thread
@@ -422,22 +413,46 @@ class LoRaRFRadio:
         if self._rx_thread:
             self._rx_thread.join(timeout=3)
 
+    def _do_transmit(self, payload: bytes, result_box: list, done_event: threading.Event):
+        """Execute a TX request synchronously (called from the radio loop thread)."""
+        self._lora.beginPacket()
+        self._lora.write(list(payload), len(payload))
+        self._lora.endPacket()
+        result = self._lora.wait(10_000)   # 10 s timeout in ms
+        if self._chip in ("sx1276", "sx1278"):
+            success = bool(result)
+        else:
+            success = (result == self._lora.STATUS_TX_DONE)
+        if not success:
+            log.warning("TX failed — status=%s", result)
+        else:
+            log.info("TX done, %d bytes", len(payload))
+        result_box.append(success)
+        done_event.set()
+
     def _rx_loop(self):
         """
-        LoRaRF receive loop.
-        request() puts the radio into single-receive mode; wait() blocks until
-        a packet arrives or times out.  We loop continuously for iGate use.
+        Single radio thread — handles both RX and TX.
 
-        Uses wait(1000) — a 1-second timeout — instead of wait(0) (infinite)
-        so that the radio_lock is released every ≤1 s and transmit() can
-        acquire it without waiting for an actual packet to arrive.
+        Before each receive window, drains the TX queue so transmit() requests
+        from other threads are serviced promptly.  All radio access stays on
+        this one thread; no locks needed.
         """
         while self._running:
-            # Hold the radio lock only for the duration of one request+wait cycle
-            # (≤1 s).  transmit() waits for this lock before touching the radio.
-            with self._radio_lock:
-                self._lora.request()
-                result = self._lora.wait(1000)  # 1 s max; release lock for TX
+            # --- service any pending TX requests first -------------------
+            while True:
+                try:
+                    payload, result_box, done_event = self._tx_queue.get_nowait()
+                    self._do_transmit(payload, result_box, done_event)
+                except queue.Empty:
+                    break
+
+            if not self._running:
+                break
+
+            # --- single receive window (1 s timeout so TX isn't delayed) -
+            self._lora.request()
+            result = self._lora.wait(1000)   # 1 s; returns to check TX queue
 
             if not self._running:
                 break
@@ -459,9 +474,7 @@ class LoRaRFRadio:
                     )
                     if self._rx_callback:
                         self._rx_callback(payload, rssi, snr)
-            elif result == (self._lora.STATUS_RX_TIMEOUT if hasattr(self._lora, "STATUS_RX_TIMEOUT") else None):
-                pass   # SX126x normal timeout — loop back into request()
-            # SX127x returns False on timeout — that is also normal, just loop
+            # timeout (False for SX127x, STATUS_RX_TIMEOUT for SX126x) is normal
 
 
 # ===========================================================================
