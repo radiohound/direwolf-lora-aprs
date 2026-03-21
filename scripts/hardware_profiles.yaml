@@ -227,6 +227,7 @@ profiles:
       busy:   null         # SX1276 has no BUSY pin
       tx_en:  null         # Internal RF switch — no MCU GPIO needed
       rx_en:  null
+    pa_boost: false          # RFO pin routed to antenna on this board (not PA_BOOST)
     tcxo:
       enabled: false       # RFM9x modules use internal RC oscillator
     max_tx_power_dbm: 17   # +17 dBm via RFO; set to 20 if using PA_BOOST path
@@ -274,8 +275,8 @@ aprs_rf:
   preamble_length:  8
   crc_enabled:      true
   implicit_header:  false     # Explicit header mode (includes length in packet)
-  tx_power_dbm:     20        # Override per-session; never exceed hardware max
-  output_power_dbm: 20
+  tx_power_dbm:     17        # RFO path max; change to 20 only if using PA_BOOST
+  output_power_dbm: 17
 
 
 # =============================================================================

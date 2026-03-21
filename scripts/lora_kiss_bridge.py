@@ -375,8 +375,13 @@ class LoRaRFRadio:
         if self._chip == "sx1262":
             self._lora.setTxPower(dbm, self._lora.TX_POWER_SX1262)
         else:
-            # SX127x requires PA pin argument; RFM9x boards use PA_BOOST path
-            self._lora.setTxPower(dbm, self._lora.TX_POWER_PA_BOOST)
+            # SX127x: choose PA pin based on hardware profile.
+            # pa_boost: true  → PA_BOOST pin (up to 20 dBm)
+            # pa_boost: false → RFO pin (up to 14/17 dBm) — default for boards
+            #                   that route RFO to the antenna (e.g. LoRa-Pi)
+            use_pa_boost = self._profile.get("pa_boost", True)
+            pa_pin = self._lora.TX_POWER_PA_BOOST if use_pa_boost else self._lora.TX_POWER_RFO
+            self._lora.setTxPower(dbm, pa_pin)
 
         # Boosted LNA for best RX sensitivity
         # SX127x setRxGain takes (boost, level) — SX126x takes (gain,)
