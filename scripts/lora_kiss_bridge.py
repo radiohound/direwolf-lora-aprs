@@ -642,7 +642,8 @@ def main():
         help="Hardware profile name in hardware_profiles.yaml (default: meshadv)"
     )
     parser.add_argument(
-        "--config", default="hardware_profiles.yaml",
+        "--config",
+        default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "hardware_profiles.yaml"),
         help="Path to hardware_profiles.yaml"
     )
     parser.add_argument(
