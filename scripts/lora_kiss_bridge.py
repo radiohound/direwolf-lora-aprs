@@ -300,7 +300,7 @@ class LoRaRFRadio:
 
         else:
             # SX126x: configure SPI and pins first, then call begin()
-            self._lora.setSPI(spi["bus"], spi["device"],
+            self._lora.setSpi(spi["bus"], spi["device"],
                               spi.get("max_speed_hz", 2_000_000))
             self._lora.setPins(
                 p["cs"],
