@@ -1,5 +1,7 @@
 # Dire Wolf
 
+This fork of Dire Wolf adds the ability to transmit receive, and send to IS LoRa APRS. It uses a LoRa hat on the raspberry pi. Both standard APRS over an SDR and LoRa APRS can run at the same time.
+
 ### Decoded Information from Radio Emissions for Windows Or Linux Fans
 
 In the early days of Amateur Packet Radio, it was necessary to use an expensive "Terminal Node Controller" (TNC) with specialized hardware.  Those days are gone.  You can now get better results at lower cost by connecting your radio to the "soundcard" interface of a computer and using software to decode the signals.
