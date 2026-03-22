@@ -293,7 +293,7 @@ kiss_tnc:
 # APRS-IS iGate — bridge connects directly (no Direwolf needed)
 # =============================================================================
 aprs_is:
-  server:    rotate.aprs2.net
+  server:    noam.aprs2.net
   port:      14580
   callsign:  K6ATV-12
   passcode:  12160
@@ -305,8 +305,8 @@ aprs_is:
     interval_s: 1800      # repeat every 30 minutes
     lat:     "3700.36N"
     lon:     "12134.08W"
-    overlay: "R"          # R = receive igate
-    symbol:  "&"          # & = gateway
+    overlay: "L"          # L = LoRa igate
+    symbol:  "a"          # a = LoRa node (red icon)
     comment: "LoRa APRS iGate 433.775 MHz SF12 BW125"
 
   igtx:
