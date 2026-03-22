@@ -1,6 +1,6 @@
 # Dire Wolf
 
-This fork of Dire Wolf adds the ability to transmit receive, and send to IS LoRa APRS. It uses a LoRa hat on the raspberry pi. Both standard APRS over an SDR and LoRa APRS can run at the same time.
+This fork of Dire Wolf adds the ability to transmit receive, and send to IS via LoRa APRS. It uses a LoRa hat on the raspberry pi. Both standard APRS over an SDR and LoRa APRS can run at the same time.
 
 ### Decoded Information from Radio Emissions for Windows Or Linux Fans
 
